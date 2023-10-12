@@ -1,0 +1,11 @@
+{
+    "type": "mysql",
+    "host": "",
+    "port": 3306,
+    "username": "",
+    "password": "",
+    "database": "tryout_backend",
+    "entities": ["dist/**/*.entity{.ts,.js}"],
+    "migrations": ["src/migrations/*.ts"],
+    "synchronize": false
+  }
