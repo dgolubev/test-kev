@@ -6,7 +6,11 @@ import { AppModule } from './../src/app.module';
 describe('AppController (e2e)', () => {
   let app: INestApplication;
 
-  beforeEach(async () => {
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -21,4 +25,22 @@ describe('AppController (e2e)', () => {
       .expect(200)
       .expect('Hello World!');
   });
+
+  it('/transaction (POST)', () => {
+    return request(app.getHttpServer())
+      .post('/transaction')
+      .set('Content-type', 'application/json')
+      .send({
+        "date": "2023-10-11",
+        "amount": "500.00",
+        "currency": "USD",
+        "client_id": 42
+      })
+      .expect(201)
+      .expect({
+        "amount": "0.03",
+        "currency": "EUR"
+      });
+  });
+
 });

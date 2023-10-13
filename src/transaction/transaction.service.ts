@@ -14,10 +14,20 @@ export class TransactionService {
     return this.transactionRepository.save(transaction);
   }
 
-  async findByClientIdWithinActualMonth(clientId): Promise<Transaction[]> {
-    return this.transactionRepository.query(
-      `SELECT amount,commission,currency,client_id,base_amount FROM tryout_backend.transaction WHERE client_id = ${clientId} and 
-      MONTH(date) = MONTH(CURRENT_DATE())AND YEAR(date) = YEAR(CURRENT_DATE())`,
-    );
+  async getAmountByMonthByClient(clientId): Promise<number> {
+    const record = await this.transactionRepository
+      .createQueryBuilder('t')
+      .select('SUM(t.base_amount)', 'totalAmount')
+      .where(
+        `client_id = :clientId
+        AND MONTH(date) = MONTH(CURRENT_DATE())
+        AND YEAR(date) = YEAR(CURRENT_DATE())`,
+        {
+          clientId,
+        }
+      )
+      .getRawOne();
+
+    return record.totalAmount ?? 0;
   }
 }

@@ -1,15 +1,21 @@
-import { Controller, Post, UsePipes, Body } from '@nestjs/common';
-import { ExchangeRateService } from 'src/exchange-rate/exchange-rate.service';
+import {
+  Body,
+  Controller,
+  Header,
+  Post,
+  UsePipes,
+} from '@nestjs/common';
+import { ExchangeRateService } from '@app/exchange-rate/exchange-rate.service';
+import { BodyValidationPipe } from '@app/pipes/body.validation.pipe';
 import { TransactionService } from './transaction.service';
 import { transactionBodySchema } from './transaction.validation';
-import { BodyValidationPipe } from '../pipes/body.validation.pipe';
 import {
+  CommissionByClient,
   Currency,
-  TransactionInput,
-  DiscountRuleForClientById,
-  DefaultCommissionPercentage,
   DefaultCommissionAmount,
+  DefaultCommissionPercentage,
   HighTurnoverDiscount,
+  TransactionInput,
 } from './transaction.dto';
 
 @Controller('transaction')
@@ -17,148 +23,129 @@ export class TransactionController {
   constructor(
     private readonly transactionService: TransactionService,
     private readonly exchangeRateService: ExchangeRateService,
-  ) {}
+  ) {
+  }
 
   @Post()
+  @Header('Content-Type', 'application/json')
   @UsePipes(new BodyValidationPipe(transactionBodySchema))
   async commission(
     @Body() transactionInput: TransactionInput,
   ): Promise<string> {
+    const commissionAmount = await this.getCommissionAmount(transactionInput);
+    const transactionAmountInBaseCurr = await this.getTransactionAmountInBaseCurrency(transactionInput);
+
+    await this.saveTransaction(
+      transactionInput,
+      commissionAmount,
+      parseFloat(transactionAmountInBaseCurr),
+    )
+
     return JSON.stringify({
-      amount:
-        transactionInput.currency !== Currency.EUR
-          ? parseFloat(
-              await this.getAmountWithExchange(transactionInput),
-            ).toFixed(2)
-          : parseFloat(
-              await this.getAmountWithoutExchange(transactionInput),
-            ).toFixed(2),
+      amount: commissionAmount.toFixed(2),
       currency: Currency.EUR,
     });
   }
 
-  getClientDeposit = async (transactionInput: TransactionInput) => {
+  async turnoverRule(transactionInput: TransactionInput): Promise<number | boolean> {
     try {
-      const deposit =
-        await this.transactionService.findByClientIdWithinActualMonth(
-          transactionInput.client_id,
-        );
-
-      if (deposit) {
-        const initialDeposit = 0;
-        const totalDeposit = (await deposit).reduce(
-          (prevAmmount, transactionAmmount) =>
-            prevAmmount + transactionAmmount.base_amount,
-          initialDeposit,
-        );
-
-        return totalDeposit;
+      const clientDeposit = await this.getTotalAmount(transactionInput);
+      if (clientDeposit >= 1000) {
+        return HighTurnoverDiscount.amount;
       }
     } catch (error) {
       console.log(error);
     }
+
+    return false;
+  }
+
+  async getTotalAmount(transactionInput: TransactionInput): Promise<number> {
+    try {
+      return await this.transactionService.getAmountByMonthByClient(
+        transactionInput.client_id,
+      ) ?? 0;
+    } catch (error) {
+      console.log(error);
+    }
+
     return 0;
-  };
-
-  turnoverRule = async (transactionInput: TransactionInput) => {
-    try {
-      const clientDeposit = await this.getClientDeposit(transactionInput);
-      if (clientDeposit) {
-        return clientDeposit > 1000 ? HighTurnoverDiscount.amount : false;
-      }
-    } catch (error) {
-      console.log(error);
-    }
-  };
-
-  discountRule(transactionInput: TransactionInput) {
-    return transactionInput.client_id === 42
-      ? DiscountRuleForClientById.client_42
-      : false;
   }
 
-  defaultRule(transactionInput: TransactionInput) {
+  discountRule(transactionInput: TransactionInput): number | boolean {
+    return CommissionByClient[transactionInput.client_id] ?? false;
+  }
+
+  defaultRule(transactionInput: TransactionInput): number {
     const commissionAmount =
-      (parseInt(transactionInput.amount) / 100) *
+      (parseFloat(transactionInput.amount) / 100) *
       DefaultCommissionPercentage.percentage;
-    return commissionAmount < DefaultCommissionAmount.amount
-      ? DefaultCommissionAmount.amount
-      : commissionAmount;
+
+    return Math.max(DefaultCommissionAmount.amount, commissionAmount);
   }
 
-  async applyRules(
-    rules: ((transactionInput: TransactionInput) => any)[],
-    transactionInput: TransactionInput,
-  ) {
+  async getCommissionAmount(transactionInput: TransactionInput): Promise<number> {
+    const rules = [
+      this.discountRule,
+      this.turnoverRule,
+    ];
+
     let commissionAmount;
-    for (let i = 0; i < rules.length; i++) {
-      const ruleResult = await rules[i](transactionInput);
-      if (ruleResult) {
-        commissionAmount = ruleResult;
-        break;
-      } else {
+
+    for (const rule of rules) {
+      const ruleResult = await rule.call(this, transactionInput);
+      if (ruleResult === false) {
         continue;
       }
+
+      commissionAmount = commissionAmount
+        ? Math.min(ruleResult as number, commissionAmount)
+        : ruleResult;
     }
-    return commissionAmount
-      ? commissionAmount
-      : this.defaultRule(transactionInput);
+
+    return commissionAmount ?? this.defaultRule(transactionInput);
   }
 
-  getAmountWithExchange(transactionInput: TransactionInput) {
-    const commissionAmount = this.applyRules(
-      [this.turnoverRule, this.discountRule],
-      transactionInput,
-    );
+  async getTransactionAmountInBaseCurrency(transactionInput: TransactionInput): Promise<string> {
+    if (transactionInput.currency === Currency.EUR) {
+      return transactionInput.amount;
+    }
 
     const exhangeRateInput = {
       date: transactionInput.date,
+      from: transactionInput.currency,
+      to: Currency.EUR,
+      amount: transactionInput.amount,
     };
 
     try {
-      this.exchangeRateService.convertCurrency(exhangeRateInput).subscribe({
-        next: async (exchangeRateResponse) => {
-          this.transactionService.insertOne({
-            date: transactionInput.date,
-            amount: parseInt(transactionInput.amount),
-            currency: transactionInput.currency,
-            client_id: transactionInput.client_id,
-            commission: await commissionAmount,
-            base_currency: Currency.EUR,
-            base_amount: parseInt(transactionInput.amount) * exchangeRateResponse[transactionInput.currency],
-          });
-        },
-        error: (error) => {
-          console.log(error);
-        },
-      });
+      return await this.exchangeRateService.convertToCurrency(exhangeRateInput);
     } catch (error) {
       console.log(error);
+      throw error;
     }
-
-    return commissionAmount;
   }
 
-  async getAmountWithoutExchange(transactionInput: TransactionInput) {
-    const commissionAmount = await this.applyRules(
-      [this.turnoverRule, this.discountRule],
-      transactionInput,
-    );
+  async saveTransaction(
+    transactionInput: TransactionInput,
+    commissionAmount: number,
+    transactionAmountInBaseCurr: number,
+  ): Promise<void> {
+    const amount = parseInt(transactionInput.amount);
+
     try {
-      this.transactionService.insertOne({
+      await this.transactionService.insertOne({
         date: transactionInput.date,
-        amount: parseInt(transactionInput.amount),
+        amount: amount,
         currency: transactionInput.currency,
         client_id: transactionInput.client_id,
         commission: commissionAmount,
         base_currency: Currency.EUR,
-        base_amount: parseInt(transactionInput.amount),
+        base_amount: transactionAmountInBaseCurr,
       });
     } catch (error) {
       console.log(error);
       throw error;
     }
-
-    return commissionAmount;
   }
 }

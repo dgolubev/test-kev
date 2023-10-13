@@ -9,12 +9,14 @@ import { TransactionController } from './transaction.controller';
 import { TransactionService } from './transaction.service';
 import { LoggerMiddleware } from 'src/middlewares/logger.middleware';
 import { Transaction } from './transaction.entity';
-import { ExchangeRateModule } from './../exchange-rate/exchange-rate.module';
+import { ExchangeRateModule } from '@app/exchange-rate/exchange-rate.module';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Transaction]), ExchangeRateModule],
   controllers: [TransactionController],
-  providers: [TransactionService],
+  providers: [
+    TransactionService,
+  ],
 })
 export class TransactionModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

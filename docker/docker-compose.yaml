@@ -1,0 +1,45 @@
+version: "3.3"
+
+networks:
+  default:
+
+services:
+  app-api:
+    build:
+      dockerfile: Dockerfile
+    image: test-kevin-api
+    container_name: test-kevin-api
+    ports:
+      - 3000:3000
+    volumes:
+      - /app/docker
+      - /app/dist
+      - /app/node_modules
+      - ./entrypoint.sh:/tmp/entrypoint.sh
+      - ../:/app
+#      - ../src:/app:rw,delegated
+#      - ../package.json:/aa/package.json
+#      - ../package-lock.json:/app/package-lock.json
+    env_file:
+      - ../.env
+    links:
+      - app-db
+    depends_on:
+      - app-db
+    entrypoint: /tmp/entrypoint.sh
+
+  app-db:
+    image: mysql
+    container_name: test-kevin-db
+    restart: always
+    environment:
+      MYSQL_DATABASE: tryout_backend
+      MYSQL_USER: web-user
+      MYSQL_PASSWORD: p-web-user
+      MYSQL_ROOT_PASSWORD: Abc123456
+    ports:
+      - 3306:3306
+    expose:
+      - 3306
+    volumes:
+      - ../db:/var/lib/mysql
