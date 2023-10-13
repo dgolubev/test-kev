@@ -8,7 +8,8 @@
   "scripts": {
     "prebuild": "rimraf dist",
     "build": "nest build",
-    "db-build": "ts-node ./node_modules/typeorm/cli.js migration:run",
+    "typeorm": "ts-node  -r tsconfig-paths/register ./node_modules/.bin/typeorm -f ./src/ormconfig.ts",
+    "db-build": "npm run typeorm migration:run",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -76,7 +77,8 @@
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
     "moduleNameMapper": {
-      "^src/(.*)$": "<rootDir>/$1"
+      "^src/(.*)$": "<rootDir>/$1",
+      "^@app/(.*)": "<rootDir>/$1"
     }
   }
 }

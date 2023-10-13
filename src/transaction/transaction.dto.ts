@@ -9,9 +9,11 @@ export enum Currency {
   EUR = 'EUR',
 }
 
-export enum DiscountRuleForClientById {
-  client_42 = 0.05,
-}
+const CommissionByClient: Record<string, number> = {
+  42: 0.05,
+  52: 0.10,
+  62: 0.02,
+};
 
 export enum DefaultCommissionPercentage {
   percentage = 0.5,
@@ -23,4 +25,8 @@ export enum DefaultCommissionAmount {
 
 export enum HighTurnoverDiscount {
   amount = 0.03,
+}
+
+export {
+  CommissionByClient,
 }
